@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body style="background-image:url(./img/background.jpg)">
+<div id="blocToCenter" style="width:1010px;height:400px;position:absolute;left:50%;top:50%;margin:-200px 0 0 -505px;">
+    <div id="left" style="float:left;display:block;width:150px;height:400px;text-align:center;">
+        <input id="startGame" type="image" style="width:100px" src="./img/startBtn.png">
+        <input id="pauseGame" type="image" style="width:100px" src="./img/pauseBtn.png">
+        <input id="continueGame" type="image" style="width:100px;display:none;" src="./img/continueBtn.png">
+    </div>
+    <div id="divGame" style="float:left;display:block;width:700px;height:400px;"></div>
+    <div id="right" style="float:left;display:block;width:150px;height:400px;"></div>
+</div>
+
+
+</body>
+<style>
+    @font-face {
+        font-family: 'DS-DIGIB';
+        src: url('./font/ds_digital/DS-DIGIB.TTF');
+    }
+
+</style>
+<script src="game.js"></script>
+<script src="game.display.js"></script>
+<script src="game.control.js"></script>
+<script src="game.keycode.js"></script>
+<script src="game.ai.js"></script>
+<script src="game.conf.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    // début du code isolé
+    {
+        let requestAnimId = null;
+        const initialisation = function() {
+            // le code de l'initialisation
+            socket = io();
+            socket.on('newPlayer', (numjoueur) => {
+                game.init(numjoueur);
+                requestAnimId = window.requestAnimationFrame(main) || window.mozRequestAnimationFrame(main) || window.webkitRequestAnimationFrame(main) || window.msRequestAnimationFrame(main); // premier appel de main au rafraichissement de la page
+
+                socket.on('updatePlayerOne', () => {
+                    game.playerTwo.ai = false;
+                });
+
+                socket.on('updatePlayerOneTwo', () => {
+                    game.playerThree.hidden = false;
+                });
+
+                socket.on('updatePlayerOneTwoThree', () => {
+                    game.playerFour.hidden = false;
+                });
+
+                socket.on('startGameClickButton', () => {
+                    if (!game.gameOn)
+                        game.control.onStartGameClickButton();
+                });
+
+                socket.on('pauseGameClickButton', () => {
+                    game.control.onPauseGameClickButton();
+                });
+
+                socket.on('continueGameClickButton', () => {
+                    game.control.onContinueGameClickButton();
+                });
+
+                socket.on('reinitPlayers', () => {
+                    game.resultLayer.clear();
+                    game.playerOne.score = 0;
+                    game.playerTwo.score = 0;
+                });
+
+                socket.on('playerMoved', (player) => {
+                    switch (player.number){
+                        case 1:
+                            game.playerOne.sprite.posY = player.sprite.posY;
+                            break;
+                        case 2:
+                            game.playerTwo.sprite.posY = player.sprite.posY;
+                            break;
+                        case 3:
+                            game.playerThree.sprite.posY = player.sprite.posY;
+                            break;
+                        case 4:
+                            game.playerFour.sprite.posY = player.sprite.posY;
+                            break;
+                        default :
+
+                    }
+                });
+
+                socket.on('ballMoved', (ball) => {
+                    game.ball.sprite.posX = ball.sprite.posX;
+                    game.ball.sprite.posY = ball.sprite.posY;
+                });
+
+                socket.on('scoreChanged', (score1, score2) => {
+                    game.playerOne.score = score1;
+                    game.playerTwo.score = score2;
+                });
+
+                socket.on('winnerIs', (winner) => {
+                    if (game.player.number == winner)
+                        game.display.drawTextInLayer(game.resultLayer , "YOU WIN", "100px Arial", "#FF0000", 120, 200);
+                    else if (game.player.number == 3 && winner == 1)
+                        game.display.drawTextInLayer(game.resultLayer , "YOU WIN", "100px Arial", "#FF0000", 120, 200);
+                    else if (game.player.number == 4 && winner == 2)
+                        game.display.drawTextInLayer(game.resultLayer , "YOU WIN", "100px Arial", "#FF0000", 120, 200);
+                    else
+                        game.display.drawTextInLayer(game.resultLayer , "YOU LOOSE", "100px Arial", "#FF0000", 50, 200);
+                });
+
+                socket.on('sendBall', (player) => {
+                    if (!game.ball.inGame) {
+                        if (player.originalPosition === "right") {
+                            if (game.gameOn && game.playerTwo.retainBall) {
+                                game.ball.inGame = true;
+                                game.ball.sprite.posX = player.sprite.posX - player.sprite.width - 10;
+                                game.ball.sprite.posY = player.sprite.posY + player.sprite.height / 2;
+                                game.ball.directionX = -1;
+                                game.ball.directionY = 1;
+                                game.playerTwo.retainBall = false;
+                            }
+                        } else {
+                            game.ball.sprite.posX = game.playerOne.sprite.posX + game.playerOne.sprite.width + 10;
+                            game.ball.sprite.posY = game.playerOne.sprite.posY + game.playerOne.sprite.height / 2;
+                            game.ball.directionX = 1;
+                            game.ball.directionY = 1;
+                        }
+                    }
+                });
+
+                setInterval(function(){ socket.emit('playerMoved', game.player); }, 1000/60);
+            });
+
+            socket.on('sessionFull', () => {
+                alert('Il y a déjà quatre joueurs dans la partie');
+            });
+
+        }
+        const main = function() {
+            // le code du jeu
+            game.clearLayer(game.playersBallLayer);
+            game.movePlayers();
+            game.displayPlayers();
+            game.displayBall();
+
+
+            if ( game.ball.inGame && game.gameOn ) {
+                game.moveBall();
+                socket.emit('ballMoved', game.ball);
+                game.lostBall();
+                if (game.playerTwo.ai)
+                    game.ai.move();
+                game.collideBallWithPlayersAndAction();
+            }
+
+            if (game.player.number != 1) {
+                game.clearLayer(game.scoreLayer);
+                game.displayScore(game.playerOne.score, game.playerTwo.score);
+            }
+
+
+            requestAnimId = window.requestAnimationFrame(main) || window.mozRequestAnimationFrame(main) || window.webkitRequestAnimationFrame(main) || window.msRequestAnimationFrame(main); // rappel de main au prochain rafraichissement de la page
+        }
+        window.onload = initialisation; // appel de la fonction initialisation au chargement de la page
+    }
+    // fin du code isolé
+</script>
+
+
+
+</html>
